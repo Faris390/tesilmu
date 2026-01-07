@@ -1,0 +1,20 @@
+{
+  "name": "tesilmu",
+  "version": "1.0.0",
+  "description": "Simple WhatsApp Bot using Baileys",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "keywords": [
+    "whatsapp-bot",
+    "baileys",
+    "termux"
+  ],
+  "author": "Risshyt.py",
+  "license": "ISC",
+  "dependencies": {
+    "@whiskeysockets/baileys": "^6.7.2",
+    "pino": "^8.16.2"
+  }
+}
