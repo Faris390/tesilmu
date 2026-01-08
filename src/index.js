@@ -1,25 +1,24 @@
 const { default: WAConnection, useMultiFileAuthState, Browsers, DisconnectReason, makeCacheableSignalKeyStore, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
 const pino = require('pino');
 const readline = require('readline');
-const chalk = require('chalk');
+const chalk = require('chalk'); // Menggunakan chalk@4.1.2 yang lebih stabil dengan require
 const NodeCache = require('node-cache');
 const { parsePhoneNumber } = require('awesome-phonenumber'); 
 
 // --- KONFIGURASI BOT ---
 const SESSION_FOLDER = 'auth_info_baileys'; 
-// -----------------------
-
 const msgRetryCounterCache = new NodeCache();
-const pairingCode = true; 
+const pairingCode = true; // Selalu gunakan Pairing Code
 
-// --- SETUP CONSOLE INPUT & GLOBAL STATE ---
+// --- GLOBAL STATE & SETUP CONSOLE INPUT ---
 const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 const question = (text) => new Promise((resolve) => rl.question(text, resolve));
+
 let pairingStarted = false; 
-let lastReceivedMessage = null; // 🚨 VARIABEL UNTUK MENYIMPAN PESAN MASUK TERAKHIR
+let lastReceivedMessage = null; // Menyimpan ID/JID pesan terakhir untuk Balasan Manual
 let phoneNumber = ''; // Nomor HP bot yang diinput saat pairing
 
-console.log(chalk.green.bold('╔═════[ BOT WA INITIATOR ]═════'));
+console.log(chalk.green.bold('╔═════[ risshyt.py bot ]═════'));
 console.log(chalk.yellow(`> Session Folder: ${SESSION_FOLDER}`));
 console.log(chalk.yellow(`> Pairing Mode: Pairing Code`));
 console.log(chalk.green.bold('╚' + ('═'.repeat(30))));
@@ -30,7 +29,7 @@ console.log(chalk.green.bold('╚' + ('═'.repeat(30))));
 // =======================================================
 function readConsoleInput(sock) {
     console.log(chalk.bgCyan.black('\n>>> MODE KONSOLE AKTIF <<<'));
-    console.log('1. MANUAL REPLY: Cukup ketik [Pesan Balasan Anda] lalu ENTER.');
+    console.log('1. BALAS: Cukup ketik [Pesan Balasan Anda] lalu ENTER (Hanya setelah pesan masuk).');
     console.log('2. KIRIM BARU: [JID_atau_Nomor] | [Isi_Pesan]'); 
     console.log('Ketik "exit" untuk keluar dari mode input.');
     console.log(chalk.cyan('-------------------------------------'));
@@ -47,7 +46,7 @@ function readConsoleInput(sock) {
             return;
         }
 
-        // --- LOGIKA REPLY MANUAL ---
+        // --- LOGIKA REPLY MANUAL (Tidak ada '|' dan ada pesan terakhir) ---
         if (!trimmedInput.includes('|') && lastReceivedMessage) {
             
             const { chatID, messageObject } = lastReceivedMessage;
@@ -55,30 +54,31 @@ function readConsoleInput(sock) {
             try {
                 // KIRIM BALASAN dengan mengutip pesan terakhir
                 await sock.sendMessage(chatID, { text: trimmedInput }, { quoted: messageObject });
-                console.log(chalk.green(`\n✅ Balasan terkirim ke ${chatID.split('@')[0]} (Reply ke pesan yang baru masuk)`));
+                console.log(chalk.green(`\n✅ Balasan terkirim ke ${chatID.split('@')[0]} (Reply)`));
             } catch (error) {
                 console.error(chalk.red(`\n❌ Gagal membalas pesan:`), error.message);
             }
 
-            // Hapus pesan terakhir agar tidak terbalas dua kali
+            // Reset status balasan
             lastReceivedMessage = null; 
             
-        // --- LOGIKA KIRIM BARU ---
+        // --- LOGIKA KIRIM BARU (Ada karakter '|') ---
         } else if (trimmedInput.includes('|')) {
             const parts = trimmedInput.split('|').map(p => p.trim());
             let [recipient, messageBody] = parts;
             
             if (parts.length < 2) {
-                 console.log(chalk.red('Format salah. Gunakan: [JID/Nomor] | [Pesan]'));
+                 console.log(chalk.red('Format KIRIM BARU salah. Gunakan: [JID/Nomor] | [Pesan]'));
                  rl.prompt();
                  return;
             }
 
-            // Cek dan format JID/Nomor
+            // Validasi dan format JID/Nomor
             if (!recipient.includes('@s.whatsapp.net') && !recipient.includes('@g.us')) {
                 try {
                     const pn = parsePhoneNumber(recipient, 'ID');
-                    if (pn.isValid()) {
+                    if (pn && pn.isPossible()) { // Menggunakan isPossible() untuk mengatasi issue versi
+                        // Format ke JID: 62xxxxxx@s.whatsapp.net
                         recipient = pn.getNumber('international').replace('+', '') + '@s.whatsapp.net';
                     } else {
                         console.log(chalk.red(`\n❌ Nomor ${recipient} tidak valid.`));
@@ -86,7 +86,7 @@ function readConsoleInput(sock) {
                         return;
                     }
                 } catch (error) {
-                     console.log(chalk.red(`\n❌ Gagal memformat nomor: ${error.message}`));
+                     console.log(chalk.red(`\n❌ Error validasi nomor: ${error.message}`));
                      rl.prompt();
                      return;
                 }
@@ -100,8 +100,7 @@ function readConsoleInput(sock) {
             }
 
         } else {
-             // Jika tidak ada '|' dan tidak ada pesan terakhir (lastReceivedMessage null)
-             console.log(chalk.yellow('Tidak ada pesan untuk dibalas. Coba format KIRIM BARU atau tunggu pesan masuk.'));
+             console.log(chalk.yellow('Tidak ada pesan untuk dibalas (lastReceivedMessage null). Coba format KIRIM BARU.'));
         }
         
         rl.prompt(); 
@@ -144,7 +143,7 @@ async function startBot() {
         // Validasi dan format nomor dengan awesome-phonenumber
         try {
             const pn = parsePhoneNumber(inputNumber, 'ID');
-            if (pn.isValid()) {
+            if (pn && pn.isPossible()) {
                 phoneNumber = pn.getNumber('international').replace('+', ''); 
                 console.log(chalk.yellow(`> Nomor terformat: ${phoneNumber}`));
             } else {
@@ -176,7 +175,7 @@ async function startBot() {
     // 3. EVENT HANDLERS
     sock.ev.on('creds.update', saveCreds);
 
-    // 🚨 INI KUNCI UTAMA: Menyimpan pesan masuk
+    // Menyimpan pesan masuk untuk manual reply
     sock.ev.on('messages.upsert', async (m) => {
         if (m.messages.length > 0 && m.type === 'notify' && !m.messages[0].key.fromMe) {
             const incomingMsg = m.messages[0];
@@ -218,4 +217,4 @@ async function startBot() {
 
 // Panggil fungsi utama untuk memulai bot
 startBot();
-                            
+                
