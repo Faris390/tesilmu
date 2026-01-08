@@ -1,8 +1,9 @@
 const { default: WAConnection, useMultiFileAuthState, Browsers, DisconnectReason, makeCacheableSignalKeyStore, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
 const pino = require('pino');
 const readline = require('readline');
-const chalk = require('chalk'); // Menggunakan chalk@4.1.2 yang lebih stabil dengan require
+const chalk = require('chalk'); 
 const NodeCache = require('node-cache');
+// awesome-phonenumber di-require untuk formatting JID Kirim Baru, tapi tidak untuk validasi pairing utama
 const { parsePhoneNumber } = require('awesome-phonenumber'); 
 
 // --- KONFIGURASI BOT ---
@@ -18,7 +19,7 @@ let pairingStarted = false;
 let lastReceivedMessage = null; // Menyimpan ID/JID pesan terakhir untuk Balasan Manual
 let phoneNumber = ''; // Nomor HP bot yang diinput saat pairing
 
-console.log(chalk.green.bold('╔═════[ risshyt.py bot ]═════'));
+console.log(chalk.green.bold('╔═════[ risshyt.py bot🤭 ]═════'));
 console.log(chalk.yellow(`> Session Folder: ${SESSION_FOLDER}`));
 console.log(chalk.yellow(`> Pairing Mode: Pairing Code`));
 console.log(chalk.green.bold('╚' + ('═'.repeat(30))));
@@ -46,7 +47,7 @@ function readConsoleInput(sock) {
             return;
         }
 
-        // --- LOGIKA REPLY MANUAL (Tidak ada '|' dan ada pesan terakhir) ---
+        // --- LOGIKA REPLY MANUAL ---
         if (!trimmedInput.includes('|') && lastReceivedMessage) {
             
             const { chatID, messageObject } = lastReceivedMessage;
@@ -62,7 +63,7 @@ function readConsoleInput(sock) {
             // Reset status balasan
             lastReceivedMessage = null; 
             
-        // --- LOGIKA KIRIM BARU (Ada karakter '|') ---
+        // --- LOGIKA KIRIM BARU ---
         } else if (trimmedInput.includes('|')) {
             const parts = trimmedInput.split('|').map(p => p.trim());
             let [recipient, messageBody] = parts;
@@ -77,7 +78,8 @@ function readConsoleInput(sock) {
             if (!recipient.includes('@s.whatsapp.net') && !recipient.includes('@g.us')) {
                 try {
                     const pn = parsePhoneNumber(recipient, 'ID');
-                    if (pn && pn.isPossible()) { // Menggunakan isPossible() untuk mengatasi issue versi
+                    // Cek PN dan pastikan nomor mungkin valid
+                    if (pn && pn.isPossible()) {
                         // Format ke JID: 62xxxxxx@s.whatsapp.net
                         recipient = pn.getNumber('international').replace('+', '') + '@s.whatsapp.net';
                     } else {
@@ -100,7 +102,7 @@ function readConsoleInput(sock) {
             }
 
         } else {
-             console.log(chalk.yellow('Tidak ada pesan untuk dibalas (lastReceivedMessage null). Coba format KIRIM BARU.'));
+             console.log(chalk.yellow('Tidak ada pesan untuk dibalas. Coba format KIRIM BARU.'));
         }
         
         rl.prompt(); 
@@ -132,7 +134,7 @@ async function startBot() {
         generateHighQualityLinkPreview: true,
     });
     
-    // 2. LOGIKA PAIRING CODE & INPUT NOMOR
+    // 2. LOGIKA PAIRING CODE & INPUT NOMOR (Validasi String Sederhana)
     if (pairingCode && !sock.authState.creds.registered) {
         
         pairingStarted = true;
@@ -140,22 +142,25 @@ async function startBot() {
         
         let inputNumber = await question('Nomor Telepon Bot: ');
         
-        // Validasi dan format nomor dengan awesome-phonenumber
-        try {
-            const pn = parsePhoneNumber(inputNumber, 'ID');
-            if (pn && pn.isPossible()) {
-                phoneNumber = pn.getNumber('international').replace('+', ''); 
-                console.log(chalk.yellow(`> Nomor terformat: ${phoneNumber}`));
-            } else {
-                console.error(chalk.red('\n❌ Nomor yang dimasukkan tidak valid. Mohon coba lagi.'));
-                rl.close();
-                return;
-            }
-        } catch (error) {
-             console.error(chalk.red(`\n❌ Error validasi nomor: ${error.message}`));
+        // --- VALIDASI STRING SEDERHANA UNTUK MENGHINDARI ERROR awesome-phonenumber ---
+        let cleanedNumber = inputNumber.replace(/[^0-9]/g, '');
+        
+        if (cleanedNumber.startsWith('08')) {
+            phoneNumber = '62' + cleanedNumber.substring(1); 
+        } else if (cleanedNumber.startsWith('62')) {
+            phoneNumber = cleanedNumber;
+        } else {
+             phoneNumber = '62' + cleanedNumber; 
+        }
+        
+        if (phoneNumber.length < 10) {
+             console.error(chalk.red('\n❌ Nomor terlalu pendek. Mohon ulangi.'));
              rl.close();
              return;
         }
+        
+        console.log(chalk.yellow(`> Nomor terformat: ${phoneNumber}`));
+        // --------------------------------------------------------------------------
         
         // Minta Pairing Code dari server WhatsApp
         setTimeout(async () => {
@@ -187,34 +192,5 @@ async function startBot() {
             };
             
             const textContent = incomingMsg.message?.conversation || incomingMsg.message?.extendedTextMessage?.text || 'Media Message';
-            console.log(chalk.blue(`\n<<< Pesan Masuk dari ${incomingMsg.key.remoteJid.split('@')[0]}: "${textContent.substring(0, 50)}..."`));
-            
-            // Tampilkan ulang prompt agar Anda bisa langsung mengetik balasan
-            rl.prompt(true); 
-        }
-    });
-
-    sock.ev.on('connection.update', (update) => {
-        const { connection, lastDisconnect } = update;
-
-        if (connection === 'close') {
-            const shouldReconnect = (lastDisconnect.error)?.output?.statusCode !== DisconnectReason.loggedOut;
-            
-            if (shouldReconnect && !pairingStarted) { 
-                console.log(chalk.red(`\n❌ Koneksi ditutup. Mencoba Reconnect...`));
-                startBot(); 
-            } else if (!shouldReconnect) {
-                 console.log(chalk.yellow('⚠️ Logout permanen. Hapus folder sesi jika ingin login ulang.'));
-                 rl.close();
-            }
-        } else if (connection === 'open') {
-            console.log(chalk.greenBright(`\n✅ BOT ${sock.user.id.split(':')[0]} Berhasil Terhubung!`));
-            pairingStarted = false; 
-            readConsoleInput(sock); 
-        }
-    });
-}
-
-// Panggil fungsi utama untuk memulai bot
-startBot();
-                
+            console.log(chalk.blue(`\n<<< Pesan Masuk dari ${incomingMsg.key.remoteJid.split('@')[0]}: "${textContent.substring
+        
