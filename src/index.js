@@ -125,7 +125,7 @@ async function startBot() {
         version,
         logger: pino({ level: 'silent' }), 
         printQRInTerminal: !pairingCode, 
-        browser: Browsers.Ubuntu('Firefox'), 
+        browser: Browsers.ubuntu('Firefox'), 
         auth: {
             creds: state.creds,
             keys: makeCacheableSignalKeyStore(state.keys, pino({ level: 'silent' })),
