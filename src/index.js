@@ -3,25 +3,24 @@ const pino = require('pino');
 const readline = require('readline');
 const chalk = require('chalk'); 
 const NodeCache = require('node-cache');
-// awesome-phonenumber di-require untuk formatting JID Kirim Baru, tapi tidak untuk validasi pairing utama
 const { parsePhoneNumber } = require('awesome-phonenumber'); 
 
 // --- KONFIGURASI BOT ---
 const SESSION_FOLDER = 'auth_info_baileys'; 
 const msgRetryCounterCache = new NodeCache();
-const pairingCode = true; // Selalu gunakan Pairing Code
+
+// 🚨 MODE QR CODE DIPILIH: UBAH KE false
+const pairingCode = false; 
 
 // --- GLOBAL STATE & SETUP CONSOLE INPUT ---
 const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 const question = (text) => new Promise((resolve) => rl.question(text, resolve));
 
-let pairingStarted = false; 
 let lastReceivedMessage = null; // Menyimpan ID/JID pesan terakhir untuk Balasan Manual
-let phoneNumber = ''; // Nomor HP bot yang diinput saat pairing
 
-console.log(chalk.green.bold('╔═════[ risshyt.py bot🤭 ]═════'));
+console.log(chalk.green.bold('╔═════[ risshyt.py bot ]═════'));
 console.log(chalk.yellow(`> Session Folder: ${SESSION_FOLDER}`));
-console.log(chalk.yellow(`> Pairing Mode: Pairing Code`));
+console.log(chalk.yellow(`> Pairing Mode: QR Code`));
 console.log(chalk.green.bold('╚' + ('═'.repeat(30))));
 
 
@@ -78,9 +77,7 @@ function readConsoleInput(sock) {
             if (!recipient.includes('@s.whatsapp.net') && !recipient.includes('@g.us')) {
                 try {
                     const pn = parsePhoneNumber(recipient, 'ID');
-                    // Cek PN dan pastikan nomor mungkin valid
                     if (pn && pn.isPossible()) {
-                        // Format ke JID: 62xxxxxx@s.whatsapp.net
                         recipient = pn.getNumber('international').replace('+', '') + '@s.whatsapp.net';
                     } else {
                         console.log(chalk.red(`\n❌ Nomor ${recipient} tidak valid.`));
@@ -124,7 +121,11 @@ async function startBot() {
     const sock = WAConnection({
         version,
         logger: pino({ level: 'silent' }), 
+        
+        // QR Code akan dicetak di terminal jika state belum registered
         printQRInTerminal: !pairingCode, 
+        
+        // Menggunakan identitas browser yang berbeda
         browser: Browsers.ubuntu('Firefox'), 
         auth: {
             creds: state.creds,
@@ -134,47 +135,13 @@ async function startBot() {
         generateHighQualityLinkPreview: true,
     });
     
-    // 2. LOGIKA PAIRING CODE & INPUT NOMOR (Validasi String Sederhana)
-    if (pairingCode && !sock.authState.creds.registered) {
-        
-        pairingStarted = true;
-        console.log(chalk.yellowBright('\n⚠️  Harap masukkan nomor telepon bot Anda (contoh: 628123456789)'));
-        
-        let inputNumber = await question('Nomor Telepon Bot: ');
-        
-        // --- VALIDASI STRING SEDERHANA UNTUK MENGHINDARI ERROR awesome-phonenumber ---
-        let cleanedNumber = inputNumber.replace(/[^0-9]/g, '');
-        
-        if (cleanedNumber.startsWith('08')) {
-            phoneNumber = '62' + cleanedNumber.substring(1); 
-        } else if (cleanedNumber.startsWith('62')) {
-            phoneNumber = cleanedNumber;
-        } else {
-             phoneNumber = '62' + cleanedNumber; 
-        }
-        
-        if (phoneNumber.length < 10) {
-             console.error(chalk.red('\n❌ Nomor terlalu pendek. Mohon ulangi.'));
-             rl.close();
-             return;
-        }
-        
-        console.log(chalk.yellow(`> Nomor terformat: ${phoneNumber}`));
-        // --------------------------------------------------------------------------
-        
-        // Minta Pairing Code dari server WhatsApp
-        setTimeout(async () => {
-            try {
-                const code = await sock.requestPairingCode(phoneNumber);
-                console.log(chalk.greenBright(`\n==========================================`));
-                console.log(chalk.yellow.bold(`   ⚠️ KODE PAIRING (MASUKKAN DI WA HP ANDA): ${code}`));
-                console.log(chalk.white('   Buka WhatsApp HP > Perangkat Tertaut > Tautkan dengan nomor telepon saja'));
-                console.log(chalk.greenBright(`==========================================\n`));
-            } catch (error) {
-                console.error(chalk.red('❌ Gagal request pairing code. Pastikan nomor benar.'), error.message);
-                pairingStarted = false;
-            }
-        }, 3000);
+    // 2. LOGIKA QR CODE
+    if (!sock.authState.creds.registered) {
+        console.log(chalk.greenBright('\n=========================================='));
+        console.log(chalk.yellow.bold('   SCAN QR CODE YANG MUNCUL DI BAWAH INI'));
+        console.log(chalk.white('   Buka WhatsApp HP > Perangkat Tertaut > Tautkan perangkat'));
+        console.log(chalk.greenBright('==========================================\n'));
+        // Baileys akan otomatis mencetak QR karena printQRInTerminal: true
     }
     
     // 3. EVENT HANDLERS
@@ -205,16 +172,16 @@ async function startBot() {
         if (connection === 'close') {
             const shouldReconnect = (lastDisconnect.error)?.output?.statusCode !== DisconnectReason.loggedOut;
             
-            if (shouldReconnect && !pairingStarted) { 
+            if (shouldReconnect) { 
                 console.log(chalk.red(`\n❌ Koneksi ditutup. Mencoba Reconnect...`));
+                // Lakukan reconnect otomatis jika bukan karena logout permanen
                 startBot(); 
-            } else if (!shouldReconnect) {
+            } else {
                  console.log(chalk.yellow('⚠️ Logout permanen. Hapus folder sesi jika ingin login ulang.'));
                  rl.close();
             }
         } else if (connection === 'open') {
             console.log(chalk.greenBright(`\n✅ BOT ${sock.user.id.split(':')[0]} Berhasil Terhubung!`));
-            pairingStarted = false; 
             readConsoleInput(sock); 
         }
     });
