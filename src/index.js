@@ -17,7 +17,7 @@ const question = (text) => new Promise((resolve) => rl.question(text, resolve));
 
 let lastReceivedMessage = null; // Menyimpan ID/JID pesan terakhir untuk Balasan Manual
 
-console.log(chalk.green.bold('╔═════[ risshyt.py bot ]═════'));
+console.log(chalk.green.bold('╔═════[ risshyt.py jir🔥🥶 ]═════'));
 console.log(chalk.yellow(`> Session Folder: ${SESSION_FOLDER}`));
 console.log(chalk.yellow(`> Pairing Mode: QR Code`));
 console.log(chalk.green.bold('╚' + ('═'.repeat(30))));
@@ -27,7 +27,11 @@ console.log(chalk.green.bold('╚' + ('═'.repeat(30))));
 // FUNGSI: Membaca input dari Termux dan mengirim pesan
 // =======================================================
 function readConsoleInput(sock) {
-    console.log(chalk.bgCyan.black('\n>>> MODE KONSOLE AKTIF <<<'));
+    
+    // 🚨 FIX SPAM LISTENER: Hapus semua listener 'line' sebelum membuat yang baru
+    rl.removeAllListeners('line'); 
+    
+    console.log(chalk.bgCyan.black('\n>>> MODE KONSOL AKTIF <<<'));
     console.log('1. BALAS: Cukup ketik [Pesan Balasan Anda] lalu ENTER.');
     console.log('2. KIRIM BARU: [Nomor Tujuan], [Isi Pesan] (Contoh: 62812xxx, Halo)'); 
     console.log('Ketik "exit" untuk keluar.');
@@ -71,7 +75,7 @@ function readConsoleInput(sock) {
                  return;
             }
 
-            // --- LOGIKA VALIDASI DAN FORMAT NOMOR (Anti Error pn.isPossible) ---
+            // --- LOGIKA VALIDASI DAN FORMAT NOMOR ---
             if (!recipient.includes('@s.whatsapp.net') && !recipient.includes('@g.us')) {
                 let cleanedNumber = recipient.replace(/[^0-9]/g, '');
                 
@@ -102,7 +106,7 @@ function readConsoleInput(sock) {
             }
 
         } else {
-             console.log(chalk.yellow('Tidak ada pesan untuk dibalas (lastReceivedMessage null). Coba format KIRIM BARU.'));
+             console.log(chalk.yellow('Tidak ada pesan untuk dibalas. Coba format KIRIM BARU.'));
         }
         
         rl.prompt(); 
@@ -124,7 +128,6 @@ async function startBot() {
     const sock = WAConnection({
         version,
         logger: pino({ level: 'silent' }), 
-        // printQRInTerminal dihilangkan
         browser: Browsers.ubuntu('Firefox'), 
         auth: {
             creds: state.creds,
@@ -157,30 +160,36 @@ async function startBot() {
             
             const textContent = incomingMsg.message?.conversation || incomingMsg.message?.extendedTextMessage?.text || 'Media Message';
             
-            // 🚨 LOGIKA PEMBERSAH JID AGAR MENJADI 62xxxxxxxx (Menghilangkan JID Acak/Panjang)
+            // 🚨 LOGIKA PENAMBAHAN WAKTU
+            const now = new Date();
+            const timeString = now.toLocaleTimeString('id-ID', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            
+            // LOGIKA PEMBERSAH JID AGAR MENJADI 62xxxxxxxx (Menghilangkan JID Acak/Panjang)
             const senderJid = incomingMsg.key.remoteJid;
             let displayId;
 
             if (senderJid.endsWith('@g.us')) {
-                // Jika itu JID Grup, tampilkan ID-nya yang dipotong dan label "GRUP"
-                displayId = `[GRUP] ID: ${senderJid.split('@')[0].substring(0, 8)}...`;
+                // Jika itu JID Grup, tampilkan ID-nya yang lengkap (tanpa @g.us)
+                displayId = `[GRUP] JID: ${senderJid.split('@')[0]}`;
             } else if (senderJid.endsWith('@s.whatsapp.net')) {
                 // Jika JID Personal (Kontak)
                 
-                let rawNumber = senderJid.split('@')[0];
+                let rawNumber = senderJid.split('@s.whatsapp.net')[0];
                 
-                // Jika terlalu panjang, ambil 10 digit terakhir dan tambahkan 62 (asumsi nomor Indo)
-                if (rawNumber.length > 12) {
+                // Jika rawNumber terlalu panjang, paksakan menjadi 62xxxxxxxxx
+                if (rawNumber.length > 12) { 
+                    // Ambil 10 digit terakhir dan paksakan diawali 62
                     let cleanedNumber = rawNumber.substring(rawNumber.length - 10);
                     displayId = '62' + cleanedNumber;
                 } else {
+                    // Jika JID terlihat normal (628...), tampilkan saja
                     displayId = rawNumber;
                 }
             } else {
                 displayId = senderJid;
             }
                                 
-            console.log(chalk.blue(`\n<<< Pesan Masuk dari ${displayId}: "${textContent.substring(0, 50)}..."`));
+            console.log(chalk.blue(`\n<<< [${timeString}] Pesan Masuk dari ${displayId}: "${textContent.substring(0, 50)}..."`));
             
             rl.prompt(true); 
         }
@@ -213,4 +222,3 @@ async function startBot() {
 
 // Panggil fungsi utama untuk memulai bot
 startBot();
-                    
