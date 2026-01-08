@@ -4,6 +4,8 @@ const readline = require('readline');
 const chalk = require('chalk'); 
 const NodeCache = require('node-cache');
 const { parsePhoneNumber } = require('awesome-phonenumber'); 
+// Tambahkan library qrcode-terminal untuk menampilkan QR Code
+const qrcode = require('qrcode-terminal'); 
 
 // --- KONFIGURASI BOT ---
 const SESSION_FOLDER = 'auth_info_baileys'; 
@@ -18,15 +20,12 @@ const question = (text) => new Promise((resolve) => rl.question(text, resolve));
 
 let lastReceivedMessage = null; // Menyimpan ID/JID pesan terakhir untuk Balasan Manual
 
-console.log(chalk.green.bold('╔═════[ risshyt.py bot ]═════'));
+console.log(chalk.green.bold('╔═════[ BOT WA INITIATOR ]═════'));
 console.log(chalk.yellow(`> Session Folder: ${SESSION_FOLDER}`));
-console.log(chalk.yellow(`> Pairing Mode: QR Code`));
+console.log(chalk.yellow(`> Pairing Mode: QR Code Manual Listener`));
 console.log(chalk.green.bold('╚' + ('═'.repeat(30))));
 
-
-// =======================================================
-// FUNGSI: Membaca input dari Termux dan mengirim pesan
-// =======================================================
+// ... (Fungsi readConsoleInput tetap sama)
 function readConsoleInput(sock) {
     console.log(chalk.bgCyan.black('\n>>> MODE KONSOLE AKTIF <<<'));
     console.log('1. BALAS: Cukup ketik [Pesan Balasan Anda] lalu ENTER (Hanya setelah pesan masuk).');
@@ -52,14 +51,12 @@ function readConsoleInput(sock) {
             const { chatID, messageObject } = lastReceivedMessage;
 
             try {
-                // KIRIM BALASAN dengan mengutip pesan terakhir
                 await sock.sendMessage(chatID, { text: trimmedInput }, { quoted: messageObject });
                 console.log(chalk.green(`\n✅ Balasan terkirim ke ${chatID.split('@')[0]} (Reply)`));
             } catch (error) {
                 console.error(chalk.red(`\n❌ Gagal membalas pesan:`), error.message);
             }
 
-            // Reset status balasan
             lastReceivedMessage = null; 
             
         // --- LOGIKA KIRIM BARU ---
@@ -73,7 +70,6 @@ function readConsoleInput(sock) {
                  return;
             }
 
-            // Validasi dan format JID/Nomor
             if (!recipient.includes('@s.whatsapp.net') && !recipient.includes('@g.us')) {
                 try {
                     const pn = parsePhoneNumber(recipient, 'ID');
@@ -107,12 +103,17 @@ function readConsoleInput(sock) {
         process.exit(0);
     });
 }
+// ... (Akhir Fungsi readConsoleInput)
 
 
 // =======================================================
 // FUNGSI UTAMA KONEKSI BAOILEYS
 // =======================================================
 async function startBot() {
+    
+    // ⚠️ PERINGATAN: TAMBAH LIBRARY qrcode-terminal
+    // Sebelum menjalankan kode ini, pastikan Anda sudah instal:
+    // npm install qrcode-terminal
     
     const { state, saveCreds } = await useMultiFileAuthState(SESSION_FOLDER);
     const { version, isLatest } = await fetchLatestBaileysVersion();
@@ -122,10 +123,8 @@ async function startBot() {
         version,
         logger: pino({ level: 'silent' }), 
         
-        // QR Code akan dicetak di terminal jika state belum registered
-        printQRInTerminal: !pairingCode, 
+        // 🚨 HAPUS OPSI printQRInTerminal
         
-        // Menggunakan identitas browser yang berbeda
         browser: Browsers.ubuntu('Firefox'), 
         auth: {
             creds: state.creds,
@@ -135,13 +134,12 @@ async function startBot() {
         generateHighQualityLinkPreview: true,
     });
     
-    // 2. LOGIKA QR CODE
+    // 2. LOGIKA QR CODE MANUAL
     if (!sock.authState.creds.registered) {
         console.log(chalk.greenBright('\n=========================================='));
         console.log(chalk.yellow.bold('   SCAN QR CODE YANG MUNCUL DI BAWAH INI'));
         console.log(chalk.white('   Buka WhatsApp HP > Perangkat Tertaut > Tautkan perangkat'));
         console.log(chalk.greenBright('==========================================\n'));
-        // Baileys akan otomatis mencetak QR karena printQRInTerminal: true
     }
     
     // 3. EVENT HANDLERS
@@ -152,7 +150,6 @@ async function startBot() {
         if (m.messages.length > 0 && m.type === 'notify' && !m.messages[0].key.fromMe) {
             const incomingMsg = m.messages[0];
             
-            // SIMPAN PESAN TERAKHIR yang masuk
             lastReceivedMessage = {
                 chatID: incomingMsg.key.remoteJid,
                 messageObject: incomingMsg
@@ -161,20 +158,24 @@ async function startBot() {
             const textContent = incomingMsg.message?.conversation || incomingMsg.message?.extendedTextMessage?.text || 'Media Message';
             console.log(chalk.blue(`\n<<< Pesan Masuk dari ${incomingMsg.key.remoteJid.split('@')[0]}: "${textContent.substring(0, 50)}..."`));
             
-            // Tampilkan ulang prompt agar Anda bisa langsung mengetik balasan
             rl.prompt(true); 
         }
     });
 
     sock.ev.on('connection.update', (update) => {
-        const { connection, lastDisconnect } = update;
+        const { connection, lastDisconnect, qr } = update; // 🚨 Ambil data 'qr' dari update
+
+        // 🚨 LOGIKA BARU UNTUK MENAMPILKAN QR CODE SECARA MANUAL
+        if (qr) {
+            qrcode.generate(qr, { small: true });
+            console.log(chalk.yellow('QR Code muncul di atas. Segera scan!'));
+        }
 
         if (connection === 'close') {
             const shouldReconnect = (lastDisconnect.error)?.output?.statusCode !== DisconnectReason.loggedOut;
             
             if (shouldReconnect) { 
                 console.log(chalk.red(`\n❌ Koneksi ditutup. Mencoba Reconnect...`));
-                // Lakukan reconnect otomatis jika bukan karena logout permanen
                 startBot(); 
             } else {
                  console.log(chalk.yellow('⚠️ Logout permanen. Hapus folder sesi jika ingin login ulang.'));
