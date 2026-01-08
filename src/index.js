@@ -192,5 +192,33 @@ async function startBot() {
             };
             
             const textContent = incomingMsg.message?.conversation || incomingMsg.message?.extendedTextMessage?.text || 'Media Message';
-            console.log(chalk.blue(`\n<<< Pesan Masuk dari ${incomingMsg.key.remoteJid.split('@')[0]}: "${textContent.substring
-        
+            console.log(chalk.blue(`\n<<< Pesan Masuk dari ${incomingMsg.key.remoteJid.split('@')[0]}: "${textContent.substring(0, 50)}..."`));
+            
+            // Tampilkan ulang prompt agar Anda bisa langsung mengetik balasan
+            rl.prompt(true); 
+        }
+    });
+
+    sock.ev.on('connection.update', (update) => {
+        const { connection, lastDisconnect } = update;
+
+        if (connection === 'close') {
+            const shouldReconnect = (lastDisconnect.error)?.output?.statusCode !== DisconnectReason.loggedOut;
+            
+            if (shouldReconnect && !pairingStarted) { 
+                console.log(chalk.red(`\n❌ Koneksi ditutup. Mencoba Reconnect...`));
+                startBot(); 
+            } else if (!shouldReconnect) {
+                 console.log(chalk.yellow('⚠️ Logout permanen. Hapus folder sesi jika ingin login ulang.'));
+                 rl.close();
+            }
+        } else if (connection === 'open') {
+            console.log(chalk.greenBright(`\n✅ BOT ${sock.user.id.split(':')[0]} Berhasil Terhubung!`));
+            pairingStarted = false; 
+            readConsoleInput(sock); 
+        }
+    });
+}
+
+// Panggil fungsi utama untuk memulai bot
+startBot();
